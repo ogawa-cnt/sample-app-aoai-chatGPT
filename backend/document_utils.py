@@ -43,7 +43,7 @@ def _extract_text_from_docx(file_bytes: bytes) -> str:
     return "\n".join(parts)
 
 
-MAX_ROWS_PER_SHEET = 500
+MAX_ROWS_PER_SHEET = 2000
 
 
 def _extract_text_from_xlsx(file_bytes: bytes) -> str:
@@ -137,7 +137,7 @@ def extract_text_from_file(file_bytes: bytes, filename: str) -> str:
     raise ValueError(f"Unsupported file type: .{ext}")
 
 
-MAX_EXTRACTED_CHARS = 60000
+MAX_EXTRACTED_CHARS = 200000
 
 
 def truncate_text(text: str, max_chars: int = MAX_EXTRACTED_CHARS) -> str:

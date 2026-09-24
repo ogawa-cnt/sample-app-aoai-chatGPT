@@ -53,7 +53,7 @@ export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conv
         setDocumentText(data.text);
         setDocumentName(data.filename);
       } else if (response.status === 413) {
-        setUploadError('ファイルサイズが大きすぎます(上限25MB)。ファイルを圧縮するか、サイズを小さくしてから再度お試しください。');
+        setUploadError('ファイルサイズが大きすぎます(上限30MB)。ファイルを圧縮するか、サイズを小さくしてから再度お試しください。');
       } else {
         let message = `アップロードに失敗しました(エラーコード: ${response.status})。`;
         try {

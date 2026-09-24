@@ -41,7 +41,7 @@ bp = Blueprint("routes", __name__, static_folder="static", template_folder="stat
 
 cosmos_db_ready = asyncio.Event()
 
-MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024  # 25MB
+MAX_UPLOAD_SIZE_BYTES = 30 * 1024 * 1024  # 30MB
 
 
 def create_app():
@@ -52,7 +52,7 @@ def create_app():
 
     @app.errorhandler(413)
     async def handle_request_entity_too_large(e):
-        return jsonify({"error": "ファイルサイズが大きすぎます(上限25MB)。"}), 413
+        return jsonify({"error": "ファイルサイズが大きすぎます(上限30MB)。"}), 413
 
     @app.before_serving
     async def init():

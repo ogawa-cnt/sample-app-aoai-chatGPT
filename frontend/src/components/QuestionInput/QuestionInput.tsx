@@ -121,7 +121,7 @@ export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conv
             type="file"
             id="fileInput"
             onChange={(event) => handleImageUpload(event)}
-            accept="image/*,.txt,.md,.json,.html,.htm,.pdf"
+            accept="image/*,.txt,.md,.json,.html,.htm,.pdf,.docx,.xlsx,.pptx"
             className={styles.fileInput}
           />
           <label htmlFor="fileInput" className={styles.fileLabel} aria-label='Upload Image'>

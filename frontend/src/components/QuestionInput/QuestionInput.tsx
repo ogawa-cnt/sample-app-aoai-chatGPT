@@ -20,15 +20,37 @@ interface Props {
 export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conversationId }: Props) => {
   const [question, setQuestion] = useState<string>('')
   const [base64Image, setBase64Image] = useState<string | null>(null);
+  const [documentText, setDocumentText] = useState<string | null>(null);
+  const [documentName, setDocumentName] = useState<string | null>(null);
 
   const appStateContext = useContext(AppStateContext)
   const OYD_ENABLED = appStateContext?.state.frontendSettings?.oyd_enabled || false;
 
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
+    if (!file) return;
 
-    if (file) {
+    if (file.type.startsWith('image/')) {
       await convertToBase64(file);
+      return;
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await fetch('/extract-document-text', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setDocumentText(data.text);
+        setDocumentName(data.filename);
+      } else {
+        console.error('Error extracting text:', data.error);
+      }
+    } catch (error) {
+      console.error('Error:', error);
     }
   };
 
@@ -46,7 +68,12 @@ export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conv
       return
     }
 
-    const questionTest: ChatMessage["content"] = base64Image ? [{ type: "text", text: question }, { type: "image_url", image_url: { url: base64Image } }] : question.toString();
+    let combinedQuestion = question;
+    if (documentText) {
+      combinedQuestion = `以下はアップロードされたファイル「${documentName}」の内容です。\n\n${documentText}\n\n---\n\n上記の内容を踏まえて、次の質問に答えてください。\n\n質問: ${question}`;
+    }
+
+    const questionTest: ChatMessage["content"] = base64Image ? [{ type: "text", text: combinedQuestion }, { type: "image_url", image_url: { url: base64Image } }] : combinedQuestion.toString();
 
     if (conversationId && questionTest !== undefined) {
       onSend(questionTest, conversationId)
@@ -55,6 +82,8 @@ export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conv
       onSend(questionTest)
       setBase64Image(null)
     }
+    setDocumentText(null)
+    setDocumentName(null)
 
     if (clearOnSend) {
       setQuestion('')
@@ -92,7 +121,7 @@ export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conv
             type="file"
             id="fileInput"
             onChange={(event) => handleImageUpload(event)}
-            accept="image/*"
+            accept="image/*,.txt,.md,.json,.html,.htm,.pdf"
             className={styles.fileInput}
           />
           <label htmlFor="fileInput" className={styles.fileLabel} aria-label='Upload Image'>
@@ -104,6 +133,11 @@ export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conv
           </label>
         </div>)}
       {base64Image && <img className={styles.uploadedImage} src={base64Image} alt="Uploaded Preview" />}
+      {documentName && !base64Image && (
+        <div aria-label={`Attached file: ${documentName}`} style={{ fontSize: '12px', alignSelf: 'center', marginRight: '8px' }}>
+          📎 {documentName}
+        </div>
+      )}
       <div
         className={styles.questionInputSendButtonContainer}
         role="button"

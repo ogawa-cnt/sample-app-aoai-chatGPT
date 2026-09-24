@@ -24,6 +24,7 @@ from azure.identity.aio import (
 from backend.auth.auth_utils import get_authenticated_user_details
 from backend.security.ms_defender_utils import get_msdefender_user_json
 from backend.history.cosmosdbservice import CosmosConversationClient
+from backend.document_utils import extract_text_from_file, truncate_text
 from backend.settings import (
     app_settings,
     MINIMUM_SUPPORTED_AZURE_OPENAI_PREVIEW_API_VERSION
@@ -71,6 +72,28 @@ async def index():
 @bp.route("/favicon.ico")
 async def favicon():
     return await bp.send_static_file("favicon.ico")
+
+
+@bp.route("/extract-document-text", methods=["POST"])
+async def extract_document_text():
+    files = await request.files
+    uploaded_file = files.get("file")
+    if not uploaded_file:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    filename = uploaded_file.filename
+    file_bytes = uploaded_file.read()
+
+    try:
+        text = extract_text_from_file(file_bytes, filename)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception:
+        logging.exception("Failed to extract text from uploaded file")
+        return jsonify({"error": "ファイルの読み取りに失敗しました"}), 500
+
+    text = truncate_text(text)
+    return jsonify({"filename": filename, "text": text})
 
 
 @bp.route("/assets/<path:path>")

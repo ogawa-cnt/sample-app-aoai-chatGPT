@@ -91,7 +91,10 @@ export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conv
       ? `以下はアップロードされたファイル「${documentName}」の内容です。\n\n${documentText}\n\n---\n\n上記の内容を踏まえて、次の質問に答えてください。\n\n質問: ${question}`
       : undefined;
 
-    const questionTest: ChatMessage["content"] = base64Image ? [{ type: "text", text: question }, { type: "image_url", image_url: { url: base64Image } }] : question.toString();
+    // ファイルの中身は表示・履歴に残さないが、添付した事実だけは分かるようにファイル名を付記する
+    const displayedQuestion = documentName ? `${question}\n\n📎 ${documentName}` : question;
+
+    const questionTest: ChatMessage["content"] = base64Image ? [{ type: "text", text: question }, { type: "image_url", image_url: { url: base64Image } }] : displayedQuestion.toString();
 
     if (conversationId && questionTest !== undefined) {
       onSend(questionTest, conversationId, documentContext)

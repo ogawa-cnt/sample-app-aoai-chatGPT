@@ -10,7 +10,7 @@ import { AppStateContext } from '../../state/AppProvider'
 import { resizeImage } from '../../utils/resizeImage'
 
 interface Props {
-  onSend: (question: ChatMessage['content'], id?: string) => void
+  onSend: (question: ChatMessage['content'], id?: string, documentContext?: string) => void
   disabled: boolean
   placeholder?: string
   clearOnSend?: boolean
@@ -68,18 +68,17 @@ export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conv
       return
     }
 
-    let combinedQuestion = question;
-    if (documentText) {
-      combinedQuestion = `以下はアップロードされたファイル「${documentName}」の内容です。\n\n${documentText}\n\n---\n\n上記の内容を踏まえて、次の質問に答えてください。\n\n質問: ${question}`;
-    }
+    const documentContext = documentText
+      ? `以下はアップロードされたファイル「${documentName}」の内容です。\n\n${documentText}\n\n---\n\n上記の内容を踏まえて、次の質問に答えてください。\n\n質問: ${question}`
+      : undefined;
 
-    const questionTest: ChatMessage["content"] = base64Image ? [{ type: "text", text: combinedQuestion }, { type: "image_url", image_url: { url: base64Image } }] : combinedQuestion.toString();
+    const questionTest: ChatMessage["content"] = base64Image ? [{ type: "text", text: question }, { type: "image_url", image_url: { url: base64Image } }] : question.toString();
 
     if (conversationId && questionTest !== undefined) {
-      onSend(questionTest, conversationId)
+      onSend(questionTest, conversationId, documentContext)
       setBase64Image(null)
     } else {
-      onSend(questionTest)
+      onSend(questionTest, undefined, documentContext)
       setBase64Image(null)
     }
     setDocumentText(null)

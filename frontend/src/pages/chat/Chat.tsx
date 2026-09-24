@@ -45,6 +45,21 @@ const enum messageStatus {
   Done = 'Done'
 }
 
+// アップロードされたファイルの内容は、モデルへの送信データにのみ含め、
+// 画面表示や会話履歴への保存対象にはしない（表示用の最後のメッセージはそのまま残す）
+const buildRequestMessages = (baseMessages: ChatMessage[], documentContext?: string): ChatMessage[] => {
+  if (!documentContext || baseMessages.length === 0) {
+    return baseMessages
+  }
+  const contextMessage: ChatMessage = {
+    id: uuid(),
+    role: 'user',
+    content: documentContext,
+    date: new Date().toISOString()
+  }
+  return [...baseMessages.slice(0, -1), contextMessage, baseMessages[baseMessages.length - 1]]
+}
+
 const Chat = () => {
   const appStateContext = useContext(AppStateContext)
   const ui = appStateContext?.state.frontendSettings?.ui
@@ -179,7 +194,7 @@ const Chat = () => {
     }
   }
 
-  const makeApiRequestWithoutCosmosDB = async (question: ChatMessage["content"], conversationId?: string) => {
+  const makeApiRequestWithoutCosmosDB = async (question: ChatMessage["content"], conversationId?: string, documentContext?: string) => {
     setIsLoading(true)
     setShowLoadingMessage(true)
     const abortController = new AbortController()
@@ -220,7 +235,10 @@ const Chat = () => {
     setMessages(conversation.messages)
 
     const request: ConversationRequest = {
-      messages: [...conversation.messages.filter(answer => answer.role !== ERROR)]
+      messages: buildRequestMessages(
+        conversation.messages.filter(answer => answer.role !== ERROR),
+        documentContext
+      )
     }
 
     let result = {} as ChatResponse
@@ -306,7 +324,7 @@ const Chat = () => {
     return abortController.abort()
   }
 
-  const makeApiRequestWithCosmosDB = async (question: ChatMessage["content"], conversationId?: string) => {
+  const makeApiRequestWithCosmosDB = async (question: ChatMessage["content"], conversationId?: string, documentContext?: string) => {
     setIsLoading(true)
     setShowLoadingMessage(true)
     const abortController = new AbortController()
@@ -334,14 +352,18 @@ const Chat = () => {
       } else {
         conversation.messages.push(userMessage)
         request = {
-          messages: [...conversation.messages.filter(answer => answer.role !== ERROR)]
+          messages: buildRequestMessages(
+            conversation.messages.filter(answer => answer.role !== ERROR),
+            documentContext
+          )
         }
       }
     } else {
+      const initialMessages = [userMessage].filter(answer => answer.role !== ERROR)
       request = {
-        messages: [userMessage].filter(answer => answer.role !== ERROR)
+        messages: buildRequestMessages(initialMessages, documentContext)
       }
-      setMessages(request.messages)
+      setMessages(initialMessages)
     }
     let result = {} as ChatResponse
     var errorResponseMessage = 'Please try again. If the problem persists, please contact the site administrator.'
@@ -935,10 +957,10 @@ const Chat = () => {
                 clearOnSend
                 placeholder="Type a new question..."
                 disabled={isLoading}
-                onSend={(question, id) => {
+                onSend={(question, id, documentContext) => {
                   appStateContext?.state.isCosmosDBAvailable?.cosmosDB
-                    ? makeApiRequestWithCosmosDB(question, id)
-                    : makeApiRequestWithoutCosmosDB(question, id)
+                    ? makeApiRequestWithCosmosDB(question, id, documentContext)
+                    : makeApiRequestWithoutCosmosDB(question, id, documentContext)
                 }}
                 conversationId={
                   appStateContext?.state.currentChat?.id ? appStateContext?.state.currentChat?.id : undefined

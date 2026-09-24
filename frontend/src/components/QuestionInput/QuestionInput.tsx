@@ -22,6 +22,8 @@ export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conv
   const [base64Image, setBase64Image] = useState<string | null>(null);
   const [documentText, setDocumentText] = useState<string | null>(null);
   const [documentName, setDocumentName] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState<boolean>(false);
 
   const appStateContext = useContext(AppStateContext)
   const OYD_ENABLED = appStateContext?.state.frontendSettings?.oyd_enabled || false;
@@ -30,11 +32,14 @@ export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conv
     const file = event.target.files?.[0];
     if (!file) return;
 
+    setUploadError(null);
+
     if (file.type.startsWith('image/')) {
       await convertToBase64(file);
       return;
     }
 
+    setIsUploading(true);
     try {
       const formData = new FormData();
       formData.append('file', file);
@@ -42,15 +47,29 @@ export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conv
         method: 'POST',
         body: formData
       });
-      const data = await response.json();
+
       if (response.ok) {
+        const data = await response.json();
         setDocumentText(data.text);
         setDocumentName(data.filename);
+      } else if (response.status === 413) {
+        setUploadError('ファイルサイズが大きすぎます(上限25MB)。ファイルを圧縮するか、サイズを小さくしてから再度お試しください。');
       } else {
-        console.error('Error extracting text:', data.error);
+        let message = `アップロードに失敗しました(エラーコード: ${response.status})。`;
+        try {
+          const data = await response.json();
+          if (data?.error) message = data.error;
+        } catch {
+          // レスポンスがJSONでない場合はそのまま既定のメッセージを使う
+        }
+        setUploadError(message);
       }
     } catch (error) {
       console.error('Error:', error);
+      setUploadError('ファイルのアップロード中にエラーが発生しました。ネットワーク状況を確認し、再度お試しください。');
+    } finally {
+      setIsUploading(false);
+      event.target.value = '';
     }
   };
 
@@ -83,6 +102,7 @@ export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conv
     }
     setDocumentText(null)
     setDocumentName(null)
+    setUploadError(null)
 
     if (clearOnSend) {
       setQuestion('')
@@ -132,9 +152,19 @@ export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conv
           </label>
         </div>)}
       {base64Image && <img className={styles.uploadedImage} src={base64Image} alt="Uploaded Preview" />}
-      {documentName && !base64Image && (
+      {isUploading && (
+        <div style={{ fontSize: '12px', alignSelf: 'center', marginRight: '8px' }}>
+          アップロード中...
+        </div>
+      )}
+      {documentName && !base64Image && !isUploading && (
         <div aria-label={`Attached file: ${documentName}`} style={{ fontSize: '12px', alignSelf: 'center', marginRight: '8px' }}>
           📎 {documentName}
+        </div>
+      )}
+      {uploadError && (
+        <div role="alert" style={{ fontSize: '12px', alignSelf: 'center', marginRight: '8px', color: '#a4262c', maxWidth: '240px' }}>
+          {uploadError}
         </div>
       )}
       <div

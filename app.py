@@ -41,12 +41,19 @@ bp = Blueprint("routes", __name__, static_folder="static", template_folder="stat
 
 cosmos_db_ready = asyncio.Event()
 
+MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024  # 25MB
+
 
 def create_app():
     app = Quart(__name__)
     app.register_blueprint(bp)
     app.config["TEMPLATES_AUTO_RELOAD"] = True
-    
+    app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE_BYTES
+
+    @app.errorhandler(413)
+    async def handle_request_entity_too_large(e):
+        return jsonify({"error": "ファイルサイズが大きすぎます(上限25MB)。"}), 413
+
     @app.before_serving
     async def init():
         try:
@@ -56,7 +63,7 @@ def create_app():
             logging.exception("Failed to initialize CosmosDB client")
             app.cosmos_conversation_client = None
             raise e
-    
+
     return app
 
 

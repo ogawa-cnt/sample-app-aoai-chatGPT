@@ -29,7 +29,7 @@ export const enumerateCitations = (citations: Citation[]) => {
   return citations
 }
 
-export function parseAnswer(answer: AskResponse): ParsedAnswer {
+export function parseAnswer(answer: AskResponse, isStreaming: boolean = false): ParsedAnswer {
   if (typeof answer.answer !== "string") return null
   let answerText = answer.answer
 
@@ -41,10 +41,15 @@ export function parseAnswer(answer: AskResponse): ParsedAnswer {
     generatedFiles.push({ format: format.trim().toLowerCase(), filename: filename.trim(), content: content.trim() })
     return ''
   })
-  // ストリーミング中で、まだ閉じタグが届いていない生成ブロックは、そのまま表示せず一時的な案内に置き換える
+  // まだ閉じタグ([[/FILE]])が届いていないブロックが残っている場合、
+  // 応答がまだストリーミング中なら「生成中」、応答が終わっているのに閉じていない場合は
+  // 出力が途中で切れて失敗したとみなし、その旨を表示する(無限に「生成中」のままにしない)
   const danglingIndex = answerText.indexOf('[[FILE:')
   if (danglingIndex !== -1) {
-    answerText = answerText.slice(0, danglingIndex) + '\n\n_ファイルを生成中..._'
+    const notice = isStreaming
+      ? '_ファイルを生成中..._'
+      : '_⚠️ ファイルの生成が完了しませんでした(内容が長すぎた可能性があります)。お手数ですが、対象を絞って再度お試しください。_'
+    answerText = answerText.slice(0, danglingIndex) + '\n\n' + notice
   }
 
   const citationLinks = answerText.match(/\[(doc\d\d?\d?)]/g)

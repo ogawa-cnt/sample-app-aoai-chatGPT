@@ -857,6 +857,7 @@ const Chat = () => {
                           }}
                           onCitationClicked={c => onShowCitation(c)}
                           onExectResultClicked={() => onShowExecResult(answerId)}
+                          isStreaming={isLoading && index === messages.length - 1}
                         />}
                       </div>
                     ) : answer.role === ERROR ? (

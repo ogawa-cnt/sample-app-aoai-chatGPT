@@ -1,6 +1,7 @@
 import { useContext, useState } from 'react'
 import { FontIcon, Stack, TextField } from '@fluentui/react'
 import { SendRegular } from '@fluentui/react-icons'
+import uuid from 'react-uuid'
 
 import Send from '../../assets/Send.svg'
 
@@ -17,98 +18,202 @@ interface Props {
   conversationId?: string
 }
 
+interface Attachment {
+  id: string
+  name: string
+  kind: 'image' | 'document'
+  status: 'uploading' | 'ready' | 'error'
+  errorMessage?: string
+  imageDataUrl?: string
+  documentText?: string
+  documentImages?: string[]
+}
+
+const MAX_ATTACHMENTS = 5
+const MAX_COMBINED_CHARS = 200000
+const MAX_COMBINED_IMAGES = 10
+
 export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conversationId }: Props) => {
   const [question, setQuestion] = useState<string>('')
-  const [base64Image, setBase64Image] = useState<string | null>(null);
-  const [documentText, setDocumentText] = useState<string | null>(null);
-  const [documentName, setDocumentName] = useState<string | null>(null);
-  const [documentImages, setDocumentImages] = useState<string[] | null>(null);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([])
+  const [globalError, setGlobalError] = useState<string | null>(null)
+  const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false)
 
   const appStateContext = useContext(AppStateContext)
   const OYD_ENABLED = appStateContext?.state.frontendSettings?.oyd_enabled || false;
 
-  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    setUploadError(null);
-
+  const processFile = async (file: File, id: string) => {
     if (file.type.startsWith('image/')) {
-      await convertToBase64(file);
-      return;
+      try {
+        const resizedBase64 = await resizeImage(file, 800, 800)
+        setAttachments(prev => prev.map(a => (a.id === id ? { ...a, status: 'ready', imageDataUrl: resizedBase64 } : a)))
+      } catch (error) {
+        console.error('Error:', error)
+        setAttachments(prev =>
+          prev.map(a => (a.id === id ? { ...a, status: 'error', errorMessage: '画像の読み込みに失敗しました。' } : a))
+        )
+      }
+      return
     }
 
-    setIsUploading(true);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
+      const formData = new FormData()
+      formData.append('file', file)
       const response = await fetch('/extract-document-text', {
         method: 'POST',
         body: formData
-      });
+      })
 
       if (response.ok) {
-        const data = await response.json();
-        setDocumentText(data.text);
-        setDocumentName(data.filename);
-        setDocumentImages(data.images && data.images.length > 0 ? data.images : null);
+        const data = await response.json()
+        setAttachments(prev =>
+          prev.map(a =>
+            a.id === id
+              ? { ...a, status: 'ready', name: data.filename || a.name, documentText: data.text, documentImages: data.images || [] }
+              : a
+          )
+        )
       } else if (response.status === 413) {
-        setUploadError('ファイルサイズが大きすぎます(上限30MB)。ファイルを圧縮するか、サイズを小さくしてから再度お試しください。');
+        setAttachments(prev =>
+          prev.map(a => (a.id === id ? { ...a, status: 'error', errorMessage: 'ファイルサイズが大きすぎます(上限30MB)。' } : a))
+        )
       } else {
-        let message = `アップロードに失敗しました(エラーコード: ${response.status})。`;
+        let message = `アップロードに失敗しました(エラーコード: ${response.status})。`
         try {
-          const data = await response.json();
-          if (data?.error) message = data.error;
+          const data = await response.json()
+          if (data?.error) message = data.error
         } catch {
           // レスポンスがJSONでない場合はそのまま既定のメッセージを使う
         }
-        setUploadError(message);
+        setAttachments(prev => prev.map(a => (a.id === id ? { ...a, status: 'error', errorMessage: message } : a)))
       }
     } catch (error) {
-      console.error('Error:', error);
-      setUploadError('ファイルのアップロード中にエラーが発生しました。ネットワーク状況を確認し、再度お試しください。');
-    } finally {
-      setIsUploading(false);
-      event.target.value = '';
+      console.error('Error:', error)
+      setAttachments(prev =>
+        prev.map(a =>
+          a.id === id ? { ...a, status: 'error', errorMessage: 'ファイルのアップロード中にエラーが発生しました。' } : a
+        )
+      )
     }
-  };
+  }
 
-  const convertToBase64 = async (file: Blob) => {
-    try {
-      const resizedBase64 = await resizeImage(file, 800, 800);
-      setBase64Image(resizedBase64);
-    } catch (error) {
-      console.error('Error:', error);
+  const addFiles = (files: FileList | File[]) => {
+    if (disabled) return
+
+    const fileArray = Array.from(files)
+    if (fileArray.length === 0) return
+
+    setGlobalError(null)
+
+    const availableSlots = MAX_ATTACHMENTS - attachments.length
+    if (availableSlots <= 0) {
+      setGlobalError(`最大${MAX_ATTACHMENTS}ファイルまで添付できます。`)
+      return
     }
-  };
+
+    const filesToProcess = fileArray.slice(0, availableSlots)
+    if (fileArray.length > filesToProcess.length) {
+      setGlobalError(`最大${MAX_ATTACHMENTS}ファイルまで添付できるため、一部のファイルは追加されませんでした。`)
+    }
+
+    const newAttachments: Attachment[] = filesToProcess.map(file => ({
+      id: uuid(),
+      name: file.name || '画像',
+      kind: file.type.startsWith('image/') ? 'image' : 'document',
+      status: 'uploading'
+    }))
+
+    setAttachments(prev => [...prev, ...newAttachments])
+    filesToProcess.forEach((file, index) => processFile(file, newAttachments[index].id))
+  }
+
+  const removeAttachment = (id: string) => {
+    setAttachments(prev => prev.filter(a => a.id !== id))
+    setGlobalError(null)
+  }
+
+  const handleFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files && event.target.files.length > 0) {
+      addFiles(event.target.files)
+    }
+    event.target.value = ''
+  }
+
+  const handleDragOver = (event: React.DragEvent) => {
+    event.preventDefault()
+    if (!disabled) setIsDraggingOver(true)
+  }
+
+  const handleDragLeave = (event: React.DragEvent) => {
+    event.preventDefault()
+    setIsDraggingOver(false)
+  }
+
+  const handleDrop = (event: React.DragEvent) => {
+    event.preventDefault()
+    setIsDraggingOver(false)
+    if (event.dataTransfer.files && event.dataTransfer.files.length > 0) {
+      addFiles(event.dataTransfer.files)
+    }
+  }
+
+  const handlePaste = (event: React.ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const items = event.clipboardData?.items
+    if (!items) return
+
+    const imageFiles: File[] = []
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile()
+        if (file) imageFiles.push(file)
+      }
+    }
+
+    if (imageFiles.length > 0) {
+      event.preventDefault()
+      addFiles(imageFiles)
+    }
+    // 画像以外の通常のテキスト貼り付けは、そのままデフォルトの動作に任せる
+  }
 
   const sendQuestion = () => {
     if (disabled || !question.trim()) {
       return
     }
 
-    const documentContext = documentText
-      ? `以下はアップロードされたファイル「${documentName}」の内容です。\n\n${documentText}\n\n---\n\n上記の内容を踏まえて、次の質問に答えてください。\n\n質問: ${question}`
-      : undefined;
+    const readyAttachments = attachments.filter(a => a.status === 'ready')
+
+    const documentSections = readyAttachments
+      .filter(a => a.kind === 'document' && a.documentText)
+      .map(a => `## 添付ファイル: ${a.name}\n\n${a.documentText}`)
+
+    let combinedDocumentText = documentSections.join('\n\n---\n\n')
+    if (combinedDocumentText.length > MAX_COMBINED_CHARS) {
+      combinedDocumentText =
+        combinedDocumentText.slice(0, MAX_COMBINED_CHARS) + '\n\n...(以下省略、文字数上限のため切り捨てられました)'
+    }
+
+    const combinedImages = readyAttachments
+      .flatMap(a => (a.kind === 'image' && a.imageDataUrl ? [a.imageDataUrl] : a.documentImages || []))
+      .slice(0, MAX_COMBINED_IMAGES)
+
+    const hasAttachmentContent = combinedDocumentText.length > 0 || combinedImages.length > 0
+
+    const documentContext = hasAttachmentContent
+      ? `以下は添付されたファイルの内容です。\n\n${combinedDocumentText}\n\n---\n\n上記の内容を踏まえて、次の質問に答えてください。\n\n質問: ${question}`
+      : undefined
 
     // ファイルの中身は表示・履歴に残さないが、添付した事実だけは分かるようにファイル名を付記する
-    const displayedQuestion = documentName ? `${question}\n\n📎 ${documentName}` : question;
+    const attachmentSuffix =
+      readyAttachments.length > 0 ? '\n\n' + readyAttachments.map(a => `📎 ${a.name}`).join(' ') : ''
+    const displayedQuestion = `${question}${attachmentSuffix}`
 
-    const questionTest: ChatMessage["content"] = base64Image ? [{ type: "text", text: question }, { type: "image_url", image_url: { url: base64Image } }] : displayedQuestion.toString();
+    onSend(displayedQuestion, conversationId, documentContext, combinedImages.length > 0 ? combinedImages : undefined)
 
-    if (conversationId && questionTest !== undefined) {
-      onSend(questionTest, conversationId, documentContext, documentImages ?? undefined)
-      setBase64Image(null)
-    } else {
-      onSend(questionTest, undefined, documentContext, documentImages ?? undefined)
-      setBase64Image(null)
-    }
-    setDocumentText(null)
-    setDocumentName(null)
-    setDocumentImages(null)
-    setUploadError(null)
+    // 送信に使われた(準備完了の)添付だけを消す。失敗したものは残し、黙って消えないようにする
+    setAttachments(prev => prev.filter(a => a.status !== 'ready'))
+    setGlobalError(null)
 
     if (clearOnSend) {
       setQuestion('')
@@ -128,24 +233,69 @@ export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conv
 
   const sendQuestionDisabled = disabled || !question.trim()
 
+  const attachmentStatusIcon = (attachment: Attachment) => {
+    if (attachment.status === 'uploading') return '⏳'
+    if (attachment.status === 'error') return '⚠️'
+    return '📎'
+  }
+
   return (
-    <Stack horizontal className={styles.questionInputContainer}>
-      <TextField
-        className={styles.questionInputTextArea}
-        placeholder={placeholder}
-        multiline
-        resizable={false}
-        borderless
-        value={question}
-        onChange={onQuestionChange}
-        onKeyDown={onEnterPress}
-      />
+    <Stack
+      horizontal
+      className={styles.questionInputContainer}
+      style={attachments.length > 0 ? { height: '168px' } : undefined}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}>
+      <Stack className={styles.questionInputMain}>
+        {attachments.length > 0 && (
+          <div className={styles.attachmentsRow}>
+            {attachments.map(attachment => (
+              <div
+                key={attachment.id}
+                className={styles.attachmentChip}
+                title={attachment.status === 'error' ? attachment.errorMessage : attachment.name}>
+                {attachment.kind === 'image' && attachment.imageDataUrl ? (
+                  <img src={attachment.imageDataUrl} className={styles.attachmentThumb} alt={attachment.name} />
+                ) : (
+                  <span>{attachmentStatusIcon(attachment)}</span>
+                )}
+                <span className={styles.attachmentName}>{attachment.name}</span>
+                <button
+                  type="button"
+                  className={styles.attachmentRemove}
+                  onClick={() => removeAttachment(attachment.id)}
+                  aria-label={`Remove ${attachment.name}`}>
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <TextField
+          className={styles.questionInputTextArea}
+          placeholder={placeholder}
+          multiline
+          resizable={false}
+          borderless
+          value={question}
+          onChange={onQuestionChange}
+          onKeyDown={onEnterPress}
+          onPaste={handlePaste}
+        />
+      </Stack>
+      {isDraggingOver && (
+        <div className={styles.dragOverlay}>
+          <span>ここにファイルをドロップして添付</span>
+        </div>
+      )}
       {!OYD_ENABLED && (
         <div className={styles.fileInputContainer}>
           <input
             type="file"
             id="fileInput"
-            onChange={(event) => handleImageUpload(event)}
+            multiple
+            onChange={handleFileInputChange}
             accept="image/*,.txt,.md,.json,.html,.htm,.pdf,.docx,.xlsx,.xls,.pptx"
             className={styles.fileInput}
           />
@@ -157,20 +307,9 @@ export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conv
             />
           </label>
         </div>)}
-      {base64Image && <img className={styles.uploadedImage} src={base64Image} alt="Uploaded Preview" />}
-      {isUploading && (
-        <div style={{ fontSize: '12px', alignSelf: 'center', marginRight: '8px' }}>
-          アップロード中...
-        </div>
-      )}
-      {documentName && !base64Image && !isUploading && (
-        <div aria-label={`Attached file: ${documentName}`} style={{ fontSize: '12px', alignSelf: 'center', marginRight: '8px' }}>
-          📎 {documentName}
-        </div>
-      )}
-      {uploadError && (
-        <div role="alert" style={{ fontSize: '12px', alignSelf: 'center', marginRight: '8px', color: '#a4262c', maxWidth: '240px' }}>
-          {uploadError}
+      {globalError && (
+        <div role="alert" className={styles.globalError}>
+          {globalError}
         </div>
       )}
       <div

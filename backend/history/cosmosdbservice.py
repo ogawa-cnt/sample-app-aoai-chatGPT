@@ -106,26 +106,12 @@ class CosmosConversationClient():
         return conversations
 
     async def get_conversation(self, user_id, conversation_id):
-        parameters = [
-            {
-                'name': '@conversationId',
-                'value': conversation_id
-            },
-            {
-                'name': '@userId',
-                'value': user_id
-            }
-        ]
-        query = f"SELECT * FROM c where c.id = @conversationId and c.type='conversation' and c.userId = @userId"
-        conversations = []
-        async for item in self.container_client.query_items(query=query, parameters=parameters):
-            conversations.append(item)
-
-        ## if no conversations are found, return None
-        if len(conversations) == 0:
+        # ポイントリードを使う(他の関数と同じ方式)。クロスパーティションのクエリだと、
+        # 直前に作成した会話がまだ検索結果に反映されず「見つからない」と誤判定することがあるため
+        try:
+            return await self.container_client.read_item(item=conversation_id, partition_key=user_id)
+        except exceptions.CosmosResourceNotFoundError:
             return None
-        else:
-            return conversations[0]
  
     async def create_message(self, uuid, conversation_id, user_id, input_message: dict):
         message = {

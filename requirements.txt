@@ -14,3 +14,5 @@ pdfplumber
 python-docx
 openpyxl
 python-pptx
+PyMuPDF
+Pillow

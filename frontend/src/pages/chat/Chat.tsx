@@ -45,16 +45,31 @@ const enum messageStatus {
   Done = 'Done'
 }
 
-// アップロードされたファイルの内容は、モデルへの送信データにのみ含め、
+// アップロードされたファイルの内容(および中に貼られた画像)は、モデルへの送信データにのみ含め、
 // 画面表示や会話履歴への保存対象にはしない（表示用の最後のメッセージはそのまま残す）
-const buildRequestMessages = (baseMessages: ChatMessage[], documentContext?: string): ChatMessage[] => {
-  if (!documentContext || baseMessages.length === 0) {
+const buildRequestMessages = (
+  baseMessages: ChatMessage[],
+  documentContext?: string,
+  documentImages?: string[]
+): ChatMessage[] => {
+  const hasImages = !!documentImages && documentImages.length > 0
+  if ((!documentContext && !hasImages) || baseMessages.length === 0) {
     return baseMessages
   }
+  // 画像が複数枚になりうるため、表示用の固定タプル型とは別の可変長配列として構築する
+  const content = (
+    hasImages
+      ? [
+          { type: 'text', text: documentContext || '' },
+          ...documentImages!.map(url => ({ type: 'image_url', image_url: { url } }))
+        ]
+      : (documentContext as string)
+  ) as unknown as ChatMessage['content']
+
   const contextMessage: ChatMessage = {
     id: uuid(),
     role: 'user',
-    content: documentContext,
+    content,
     date: new Date().toISOString()
   }
   return [...baseMessages.slice(0, -1), contextMessage, baseMessages[baseMessages.length - 1]]
@@ -194,7 +209,7 @@ const Chat = () => {
     }
   }
 
-  const makeApiRequestWithoutCosmosDB = async (question: ChatMessage["content"], conversationId?: string, documentContext?: string) => {
+  const makeApiRequestWithoutCosmosDB = async (question: ChatMessage["content"], conversationId?: string, documentContext?: string, documentImages?: string[]) => {
     setIsLoading(true)
     setShowLoadingMessage(true)
     const abortController = new AbortController()
@@ -237,7 +252,8 @@ const Chat = () => {
     const request: ConversationRequest = {
       messages: buildRequestMessages(
         conversation.messages.filter(answer => answer.role !== ERROR),
-        documentContext
+        documentContext,
+        documentImages
       )
     }
 
@@ -324,7 +340,7 @@ const Chat = () => {
     return abortController.abort()
   }
 
-  const makeApiRequestWithCosmosDB = async (question: ChatMessage["content"], conversationId?: string, documentContext?: string) => {
+  const makeApiRequestWithCosmosDB = async (question: ChatMessage["content"], conversationId?: string, documentContext?: string, documentImages?: string[]) => {
     setIsLoading(true)
     setShowLoadingMessage(true)
     const abortController = new AbortController()
@@ -354,14 +370,15 @@ const Chat = () => {
         request = {
           messages: buildRequestMessages(
             conversation.messages.filter(answer => answer.role !== ERROR),
-            documentContext
+            documentContext,
+            documentImages
           )
         }
       }
     } else {
       const initialMessages = [userMessage].filter(answer => answer.role !== ERROR)
       request = {
-        messages: buildRequestMessages(initialMessages, documentContext)
+        messages: buildRequestMessages(initialMessages, documentContext, documentImages)
       }
       setMessages(initialMessages)
     }
@@ -957,10 +974,10 @@ const Chat = () => {
                 clearOnSend
                 placeholder="Type a new question..."
                 disabled={isLoading}
-                onSend={(question, id, documentContext) => {
+                onSend={(question, id, documentContext, documentImages) => {
                   appStateContext?.state.isCosmosDBAvailable?.cosmosDB
-                    ? makeApiRequestWithCosmosDB(question, id, documentContext)
-                    : makeApiRequestWithoutCosmosDB(question, id, documentContext)
+                    ? makeApiRequestWithCosmosDB(question, id, documentContext, documentImages)
+                    : makeApiRequestWithoutCosmosDB(question, id, documentContext, documentImages)
                 }}
                 conversationId={
                   appStateContext?.state.currentChat?.id ? appStateContext?.state.currentChat?.id : undefined

@@ -10,7 +10,7 @@ import { AppStateContext } from '../../state/AppProvider'
 import { resizeImage } from '../../utils/resizeImage'
 
 interface Props {
-  onSend: (question: ChatMessage['content'], id?: string, documentContext?: string) => void
+  onSend: (question: ChatMessage['content'], id?: string, documentContext?: string, documentImages?: string[]) => void
   disabled: boolean
   placeholder?: string
   clearOnSend?: boolean
@@ -22,6 +22,7 @@ export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conv
   const [base64Image, setBase64Image] = useState<string | null>(null);
   const [documentText, setDocumentText] = useState<string | null>(null);
   const [documentName, setDocumentName] = useState<string | null>(null);
+  const [documentImages, setDocumentImages] = useState<string[] | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState<boolean>(false);
 
@@ -52,6 +53,7 @@ export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conv
         const data = await response.json();
         setDocumentText(data.text);
         setDocumentName(data.filename);
+        setDocumentImages(data.images && data.images.length > 0 ? data.images : null);
       } else if (response.status === 413) {
         setUploadError('ファイルサイズが大きすぎます(上限30MB)。ファイルを圧縮するか、サイズを小さくしてから再度お試しください。');
       } else {
@@ -97,14 +99,15 @@ export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conv
     const questionTest: ChatMessage["content"] = base64Image ? [{ type: "text", text: question }, { type: "image_url", image_url: { url: base64Image } }] : displayedQuestion.toString();
 
     if (conversationId && questionTest !== undefined) {
-      onSend(questionTest, conversationId, documentContext)
+      onSend(questionTest, conversationId, documentContext, documentImages ?? undefined)
       setBase64Image(null)
     } else {
-      onSend(questionTest, undefined, documentContext)
+      onSend(questionTest, undefined, documentContext, documentImages ?? undefined)
       setBase64Image(null)
     }
     setDocumentText(null)
     setDocumentName(null)
+    setDocumentImages(null)
     setUploadError(null)
 
     if (clearOnSend) {

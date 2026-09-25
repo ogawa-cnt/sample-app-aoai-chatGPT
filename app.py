@@ -24,7 +24,7 @@ from azure.identity.aio import (
 from backend.auth.auth_utils import get_authenticated_user_details
 from backend.security.ms_defender_utils import get_msdefender_user_json
 from backend.history.cosmosdbservice import CosmosConversationClient
-from backend.document_utils import extract_text_from_file, truncate_text
+from backend.document_utils import extract_text_from_file, truncate_text, extract_images_from_file
 from backend.settings import (
     app_settings,
     MINIMUM_SUPPORTED_AZURE_OPENAI_PREVIEW_API_VERSION
@@ -100,7 +100,14 @@ async def extract_document_text():
         return jsonify({"error": "ファイルの読み取りに失敗しました"}), 500
 
     text = truncate_text(text)
-    return jsonify({"filename": filename, "text": text})
+
+    try:
+        images = extract_images_from_file(file_bytes, filename)
+    except Exception:
+        logging.exception("Failed to extract images from uploaded file")
+        images = []
+
+    return jsonify({"filename": filename, "text": text, "images": images})
 
 
 @bp.route("/assets/<path:path>")

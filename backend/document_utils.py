@@ -1,4 +1,6 @@
+import base64
 import io
+import logging
 import re
 
 
@@ -144,3 +146,104 @@ def truncate_text(text: str, max_chars: int = MAX_EXTRACTED_CHARS) -> str:
     if len(text) <= max_chars:
         return text
     return text[:max_chars] + "\n\n...(以下省略、文字数上限のため切り捨てられました)"
+
+
+MAX_IMAGES_PER_FILE = 10
+IMAGE_MAX_DIMENSION = 800
+IMAGE_JPEG_QUALITY = 80
+
+
+def _resize_and_encode_image(image_bytes: bytes) -> str | None:
+    from PIL import Image as PILImage
+
+    try:
+        with PILImage.open(io.BytesIO(image_bytes)) as im:
+            im.load()
+            if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
+                rgba = im.convert("RGBA")
+                background = PILImage.new("RGB", rgba.size, (255, 255, 255))
+                background.paste(rgba, mask=rgba.split()[-1])
+                im = background
+            else:
+                im = im.convert("RGB")
+
+            im.thumbnail((IMAGE_MAX_DIMENSION, IMAGE_MAX_DIMENSION))
+
+            buf = io.BytesIO()
+            im.save(buf, format="JPEG", quality=IMAGE_JPEG_QUALITY)
+            encoded = base64.b64encode(buf.getvalue()).decode("ascii")
+            return f"data:image/jpeg;base64,{encoded}"
+    except Exception:
+        # 抽出できない画像形式(EMF/WMF等)は無視して先へ進む
+        logging.exception("Failed to process an embedded image; skipping it")
+        return None
+
+
+def _extract_raw_images_from_docx(file_bytes: bytes) -> list:
+    from docx import Document
+
+    document = Document(io.BytesIO(file_bytes))
+    images = []
+    for rel in document.part.rels.values():
+        if "image" in rel.reltype:
+            images.append(rel.target_part.blob)
+    return images
+
+
+def _extract_raw_images_from_xlsx(file_bytes: bytes) -> list:
+    import openpyxl
+
+    workbook = openpyxl.load_workbook(io.BytesIO(file_bytes))
+    images = []
+    for sheet in workbook.worksheets:
+        for img in sheet._images:
+            images.append(img._data())
+    return images
+
+
+def _extract_raw_images_from_pptx(file_bytes: bytes) -> list:
+    from pptx import Presentation
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+    presentation = Presentation(io.BytesIO(file_bytes))
+    images = []
+    for slide in presentation.slides:
+        for shape in slide.shapes:
+            if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
+                images.append(shape.image.blob)
+    return images
+
+
+def _extract_raw_images_from_pdf(file_bytes: bytes) -> list:
+    import pymupdf
+
+    images = []
+    with pymupdf.open(stream=file_bytes, filetype="pdf") as doc:
+        for page in doc:
+            for img_info in page.get_images(full=True):
+                xref = img_info[0]
+                base_image = doc.extract_image(xref)
+                images.append(base_image["image"])
+    return images
+
+
+def extract_images_from_file(file_bytes: bytes, filename: str) -> list:
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+
+    if ext == "docx":
+        raw_images = _extract_raw_images_from_docx(file_bytes)
+    elif ext == "xlsx":
+        raw_images = _extract_raw_images_from_xlsx(file_bytes)
+    elif ext == "pptx":
+        raw_images = _extract_raw_images_from_pptx(file_bytes)
+    elif ext == "pdf":
+        raw_images = _extract_raw_images_from_pdf(file_bytes)
+    else:
+        return []
+
+    encoded_images = []
+    for raw in raw_images[:MAX_IMAGES_PER_FILE]:
+        encoded = _resize_and_encode_image(raw)
+        if encoded:
+            encoded_images.append(encoded)
+    return encoded_images

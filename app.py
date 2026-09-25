@@ -1,3 +1,4 @@
+import base64
 import copy
 import json
 import os
@@ -25,6 +26,7 @@ from backend.auth.auth_utils import get_authenticated_user_details
 from backend.security.ms_defender_utils import get_msdefender_user_json
 from backend.history.cosmosdbservice import CosmosConversationClient
 from backend.document_utils import extract_text_from_file, truncate_text, extract_images_from_file
+from backend.document_generator import generate_file
 from backend.settings import (
     app_settings,
     MINIMUM_SUPPORTED_AZURE_OPENAI_PREVIEW_API_VERSION
@@ -42,6 +44,28 @@ bp = Blueprint("routes", __name__, static_folder="static", template_folder="stat
 cosmos_db_ready = asyncio.Event()
 
 MAX_UPLOAD_SIZE_BYTES = 30 * 1024 * 1024  # 30MB
+
+FILE_GENERATION_INSTRUCTION = """
+
+# ファイル生成機能
+ユーザーが「ファイルを作成して」「ダウンロードできるようにして」のように、ダウンロード可能なファイルの作成を明示的に求めた場合にのみ、以下の形式で出力してください。それ以外の通常の回答(プログラムコードの提示や、一般的な説明・表の提示を含む)では、絶対にこの形式を使わないでください。
+
+対応形式: txt, md, json, html, docx, xlsx, pptx(PDFは非対応です)
+
+出力形式:
+[[FILE:拡張子:ファイル名]]
+(ここに内容)
+[[/FILE]]
+
+内容の書き方(拡張子ごと):
+- txt, md, html: そのままの文章やHTMLを記述してください
+- json: 有効なJSON形式で記述してください
+- docx: 見出しは「# 見出し」「## 見出し」「### 見出し」、箇条書きは「- 項目」、番号付きリストは「1. 項目」、表はMarkdown表(| セル | セル |)で記述してください
+- xlsx: 「## シート名」の直後にMarkdown表を書くと、そのシートの表になります。複数シートを作る場合は「## シート名」を繰り返してください
+- pptx: 「## スライドタイトル」ごとに新しいスライドになります。その下に本文(段落・箇条書き)を書いてください
+
+[[FILE:...]]ブロックの前後に、通常の説明文を加えても構いません。1つの回答で複数のファイルを生成することも可能です。
+"""
 
 
 def create_app():
@@ -108,6 +132,28 @@ async def extract_document_text():
         images = []
 
     return jsonify({"filename": filename, "text": text, "images": images})
+
+
+@bp.route("/generate-document", methods=["POST"])
+async def generate_document():
+    request_json = await request.get_json()
+    ext = (request_json.get("format") or "").strip().lower()
+    content = request_json.get("content") or ""
+    filename = request_json.get("filename") or f"generated.{ext}"
+
+    if ext not in ("txt", "md", "json", "html", "docx", "xlsx", "pptx"):
+        return jsonify({"error": f"サポートされていない形式です: {ext}"}), 400
+
+    try:
+        file_bytes = generate_file(ext, content)
+    except json.JSONDecodeError:
+        return jsonify({"error": "生成されたJSONの形式が正しくありません"}), 400
+    except Exception:
+        logging.exception("Failed to generate document")
+        return jsonify({"error": "ファイルの生成に失敗しました"}), 500
+
+    encoded = base64.b64encode(file_bytes).decode("ascii")
+    return jsonify({"filename": filename, "data": encoded})
 
 
 @bp.route("/assets/<path:path>")
@@ -282,7 +328,7 @@ def prepare_model_args(request_body, request_headers):
         messages = [
             {
                 "role": "system",
-                "content": app_settings.azure_openai.system_message
+                "content": app_settings.azure_openai.system_message + FILE_GENERATION_INSTRUCTION
             }
         ]
 

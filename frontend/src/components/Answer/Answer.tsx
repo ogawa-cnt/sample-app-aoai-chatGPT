@@ -13,6 +13,7 @@ import { XSSAllowTags, XSSAllowAttributes } from '../../constants/sanatizeAllowa
 import { AppStateContext } from '../../state/AppProvider'
 
 import { parseAnswer } from './AnswerParser'
+import { GeneratedFileButton } from './GeneratedFileButton'
 
 import styles from './Answer.module.css'
 
@@ -295,6 +296,13 @@ export const Answer = ({ answer, onCitationClicked, onExectResultClicked }: Prop
             <Stack.Item grow>
               <img src={`data:image/png;base64, ${parsedAnswer?.generated_chart}`} />
             </Stack.Item>
+          </Stack>
+        )}
+        {!!parsedAnswer?.generatedFiles?.length && (
+          <Stack className={styles.answerContainer}>
+            {parsedAnswer.generatedFiles.map((file, idx) => (
+              <GeneratedFileButton key={idx} format={file.format} filename={file.filename} content={file.content} />
+            ))}
           </Stack>
         )}
         <Stack horizontal className={styles.answerFooter}>

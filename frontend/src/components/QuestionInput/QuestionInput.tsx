@@ -1,6 +1,6 @@
 import { useContext, useState } from 'react'
-import { FontIcon, Stack, TextField } from '@fluentui/react'
-import { SendRegular } from '@fluentui/react-icons'
+import { Stack, TextField } from '@fluentui/react'
+import { DocumentAddRegular, SendRegular } from '@fluentui/react-icons'
 import uuid from 'react-uuid'
 
 import Send from '../../assets/Send.svg'
@@ -206,7 +206,7 @@ export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conv
 
     // ファイルの中身は表示・履歴に残さないが、添付した事実だけは分かるようにファイル名を付記する
     const attachmentSuffix =
-      readyAttachments.length > 0 ? '\n\n' + readyAttachments.map(a => `📎 ${a.name}`).join(' ') : ''
+      readyAttachments.length > 0 ? '\n\n' + readyAttachments.map(a => `📌 ${a.name}`).join(' ') : ''
     const displayedQuestion = `${question}${attachmentSuffix}`
 
     onSend(displayedQuestion, conversationId, documentContext, combinedImages.length > 0 ? combinedImages : undefined)
@@ -236,7 +236,7 @@ export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conv
   const attachmentStatusIcon = (attachment: Attachment) => {
     if (attachment.status === 'uploading') return '⏳'
     if (attachment.status === 'error') return '⚠️'
-    return '📎'
+    return '📌'
   }
 
   return (
@@ -299,12 +299,8 @@ export const QuestionInput = ({ onSend, disabled, placeholder, clearOnSend, conv
             accept="image/*,.txt,.md,.json,.html,.htm,.pdf,.docx,.xlsx,.xls,.pptx"
             className={styles.fileInput}
           />
-          <label htmlFor="fileInput" className={styles.fileLabel} aria-label='Upload Image'>
-            <FontIcon
-              className={styles.fileIcon}
-              iconName={'PhotoCollection'}
-              aria-label='Upload Image'
-            />
+          <label htmlFor="fileInput" className={styles.fileLabel} aria-label='Attach file'>
+            <DocumentAddRegular className={styles.fileIcon} aria-label='Attach file' />
           </label>
         </div>)}
       {globalError && (

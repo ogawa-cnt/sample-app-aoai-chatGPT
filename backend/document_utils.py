@@ -78,6 +78,43 @@ def _extract_text_from_xlsx(file_bytes: bytes) -> str:
     return "\n\n".join(sheet_parts)
 
 
+def _format_xls_cell(value) -> str:
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def _extract_text_from_xls(file_bytes: bytes) -> str:
+    import xlrd
+
+    book = xlrd.open_workbook(file_contents=file_bytes)
+    sheet_parts = []
+    for sheet in book.sheets():
+        rows = []
+        for row_idx in range(sheet.nrows):
+            row = sheet.row_values(row_idx)
+            if any(cell != "" for cell in row):
+                rows.append(row)
+        if not rows:
+            continue
+
+        header, *data_rows = rows
+        header_cells = [_format_xls_cell(v) for v in header]
+
+        lines = [f"## シート: {sheet.name}"]
+        lines.append("| " + " | ".join(header_cells) + " |")
+        lines.append("| " + " | ".join(["---"] * len(header_cells)) + " |")
+        for row in data_rows[:MAX_ROWS_PER_SHEET]:
+            cells = [_format_xls_cell(v) for v in row]
+            lines.append("| " + " | ".join(cells) + " |")
+        if len(data_rows) > MAX_ROWS_PER_SHEET:
+            lines.append(f"...(以下省略、{len(data_rows) - MAX_ROWS_PER_SHEET}行省略)")
+
+        sheet_parts.append("\n".join(lines))
+
+    return "\n\n".join(sheet_parts)
+
+
 def _extract_text_from_pptx(file_bytes: bytes) -> str:
     from pptx import Presentation
 
@@ -132,6 +169,9 @@ def extract_text_from_file(file_bytes: bytes, filename: str) -> str:
 
     if ext == "xlsx":
         return _extract_text_from_xlsx(file_bytes)
+
+    if ext == "xls":
+        return _extract_text_from_xls(file_bytes)
 
     if ext == "pptx":
         return _extract_text_from_pptx(file_bytes)
